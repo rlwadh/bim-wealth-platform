@@ -32,40 +32,19 @@ button:hover { opacity: 0.9; }
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
-// ── AI CONFIG (Pollinations.ai - free, CORS-enabled, open-source) ──
+// ── AI CONFIG (Pollinations.ai GET - anonymous, free, CORS-enabled) ──
 async function callAI(messages) {
   try {
     const lastMsg = messages[messages.length-1].content;
-    const systemCtx = "You are BIM AI, the intelligent wealth management assistant for Big Investment Management. Client portfolio: £2.11M total (Pension £485K, DFM £650K, ISA £20K, Investment Bond £175K, Unit Trusts £89.5K, Gift/IHT £250K, Loan Plan £120K). Risk profile 6/10. ISA deadline April 5. Advisors: Sarah Mitchell (Pensions), James Chen (DFM), Emma Thompson (Estate). Be professional, concise (2-4 sentences). Never give specific investment advice.";
-    const fullPrompt = systemCtx + "\n\nClient asks: " + lastMsg + "\n\nRespond as BIM AI:";
-    
-    // Try POST to gen.pollinations.ai first
-    console.log("[BIM AI] Trying gen.pollinations.ai");
-    try {
-      const res = await fetch("https://gen.pollinations.ai/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "mistral",
-          messages: [{ role: "system", content: systemCtx }, ...messages],
-          max_tokens: 300
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.choices && data.choices[0]) return data.choices[0].message.content;
-      }
-      console.log("[BIM AI] gen.pollinations status:", res.status);
-    } catch(e) { console.log("[BIM AI] gen.pollinations failed:", e.message); }
-
-    // Fallback: GET text.pollinations.ai (anonymous, always works)
-    console.log("[BIM AI] Fallback: GET text.pollinations.ai");
-    const getRes = await fetch("https://text.pollinations.ai/" + encodeURIComponent(fullPrompt));
-    if (getRes.ok) {
-      const text = await getRes.text();
-      if (text && !text.includes('"error"')) return text.trim();
+    const prompt = "You are BIM AI, a wealth management assistant for Big Investment Management. Client has £2.11M portfolio (Pension £485K, DFM £650K, ISA £20K, Bond £175K, Trusts £89.5K, IHT £250K). Risk 6/10. ISA deadline April 5. Advisors: Sarah Mitchell (Pensions), James Chen (DFM), Emma Thompson (Estate). Be professional, concise, 2-4 sentences. Never give specific investment advice.\n\nClient: " + lastMsg + "\n\nBIM AI:";
+    console.log("[BIM AI] GET text.pollinations.ai (anonymous)");
+    const res = await fetch("https://text.pollinations.ai/" + encodeURIComponent(prompt));
+    console.log("[BIM AI] Status:", res.status);
+    if (res.ok) {
+      const text = await res.text();
+      console.log("[BIM AI] Response:", text.substring(0,100));
+      if (text && !text.includes('"error"') && text.length > 5) return text.trim();
     }
-    
     return "I'm experiencing connectivity issues. Please contact Sarah Mitchell at +44 20 7946 0958.";
   } catch (e) {
     console.error("[BIM AI] Error:", e.message);
