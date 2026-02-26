@@ -65,30 +65,37 @@ Key dates: ISA deadline April 5, Tax Year End April 6, Annual Review scheduled F
 You are FCA and BaFin compliant. Never give specific investment advice — instead provide information and suggest consulting with the assigned advisor. Be professional, warm, and concise. Respond in 2-4 sentences.`;
 
 async function callAI(messages) {
+  const userMsg = messages[messages.length - 1].content;
+  const prompt = `<s>[INST] ${SYSTEM_PROMPT}\n\nUser: ${userMsg} [/INST]`;
+  
   for (const model of AI_MODELS) {
     try {
       console.log("[BIM AI] Trying model:", model);
-      const res = await fetch(`https://api-inference.huggingface.co/models/${model}/v1/chat/completions`, {
+      const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${HF_TOKEN}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: model,
-          messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
-          max_tokens: 300,
-          temperature: 0.7
+          inputs: prompt,
+          parameters: { max_new_tokens: 250, temperature: 0.7, return_full_text: false }
         })
       });
-      console.log("[BIM AI] Response status:", res.status);
+      console.log("[BIM AI] Status:", res.status);
       const data = await res.json();
-      console.log("[BIM AI] Response data:", JSON.stringify(data).substring(0, 200));
-      if (data.choices && data.choices[0]) return data.choices[0].message.content;
-      if (data.error) { console.warn("[BIM AI] Model error:", data.error); continue; }
+      console.log("[BIM AI] Data:", JSON.stringify(data).substring(0, 300));
+      if (Array.isArray(data) && data[0] && data[0].generated_text) {
+        let text = data[0].generated_text.trim();
+        // Clean up any leftover prompt artifacts
+        if (text.includes("[/INST]")) text = text.split("[/INST]").pop().trim();
+        if (text.includes("</s>")) text = text.split("</s>")[0].trim();
+        return text;
+      }
+      if (data.error) { console.warn("[BIM AI] Error:", data.error); continue; }
     } catch (e) {
-      console.error("[BIM AI] Fetch error for", model, ":", e.message);
+      console.error("[BIM AI] Fetch error:", model, e.message);
       continue;
     }
   }
-  return "I'm experiencing connectivity issues with our AI models. For immediate assistance, please contact Sarah Mitchell at +44 20 7946 0958 or use the 'Book Advisor Session' button.";
+  return "I'm experiencing connectivity issues. Please contact Sarah Mitchell at +44 20 7946 0958 or use 'Book Advisor Session'.";
 }
 
 const C = {
