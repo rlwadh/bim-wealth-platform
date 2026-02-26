@@ -474,12 +474,12 @@ const LoginScreen = ({ onLogin }) => {
 const App = () => {
   const [loggedIn,setLoggedIn] = useState(false);
   const [page,setPage] = useState("dashboard");
-  
-  if (!loggedIn) return <LoginScreen onLogin={()=>setLoggedIn(true)} />;
   const [time,setTime] = useState(new Date());
   useEffect(()=>{const t=setInterval(()=>setTime(new Date()),60000);return()=>clearInterval(t);},[]);
   const pages = {dashboard:<Dashboard/>,products:<Products/>,advisory:<Advisory/>,compliance:<Compliance/>,corporate:<Corporate/>};
   const titles = {dashboard:"Portfolio Overview",products:"Products & Services",advisory:"Advisory & AI Assistant",compliance:"Compliance & Regulation",corporate:"Corporate Solutions"};
+  
+  if (!loggedIn) return <LoginScreen onLogin={()=>setLoggedIn(true)} />;
 
   return <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
     <div style={{width:240,background:C.surface,borderRight:`1px solid ${C.border}`,padding:"20px 12px",display:"flex",flexDirection:"column",flexShrink:0}}>
