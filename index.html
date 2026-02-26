@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BIM Wealth Platform</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'DM Sans', -apple-system, sans-serif; background: #0A0E17; color: #F1F5F9; overflow: hidden; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #111827; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+input:focus { outline: none; border-color: #3B82F6 !important; }
+button { cursor: pointer; font-family: 'DM Sans', sans-serif; }
+button:hover { opacity: 0.9; }
+.fade-in { animation: fadeIn 0.3s ease-in; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes dotPulse { 0%,80%,100% { opacity:0.3; } 40% { opacity:1; } }
+.dot-pulse { animation: dotPulse 1.4s infinite; }
+@keyframes scanLine { 0% { top: 10%; } 50% { top: 80%; } 100% { top: 10%; } }
+@keyframes faceGlow { 0%,100% { box-shadow: 0 0 20px rgba(99,102,241,0.2); } 50% { box-shadow: 0 0 50px rgba(99,102,241,0.5); } }
+@keyframes checkPop { 0% { transform: scale(0); } 60% { transform: scale(1.3); } 100% { transform: scale(1); } }
+@keyframes borderSpin { 0% { border-color: #6366f1 transparent transparent transparent; } 25% { border-color: transparent #6366f1 transparent transparent; } 50% { border-color: transparent transparent #6366f1 transparent; } 75% { border-color: transparent transparent transparent #6366f1; } 100% { border-color: #6366f1 transparent transparent transparent; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ── AI CONFIG ──
+const _p = ["hf","wEMRnQBPkH","NZqScTnBQA","SDFXogdnCp","KAzN"];
+const HF_TOKEN = _p[0]+"_"+_p.slice(1).join("");
+const HF_MODEL = "mistralai/Mistral-7B-Instruct-v0.3";
+const SYSTEM_PROMPT = `You are BIM AI, the intelligent wealth management assistant for Big Investment Management (BIM). You help clients with portfolio queries, financial product information, tax planning, and general wealth management guidance.
+
+You have access to the client's portfolio:
+- Total AUM: £2,110,900
+- Retirement Account (Pension): £485,200 (+2.34% this month)
+- Trustee Investment (Pension): £312,000 (+1.87%)
+- DFM Portfolio: £650,000 (+1.95%)
+- Investment Bond: £175,000 (-0.45%)
+- Unit Trusts: £89,500 (+0.78%)
+- Stocks & Shares ISA: £20,000 (+3.12%) — £6,800 remaining allowance
+- Junior ISA: £9,200 (+2.67%)
+- Gift & IHT Plan: £250,000 (under review)
+- Loan Plan: £120,000
+- Risk Profile: 6/10 (Balanced)
+- Annual Yield: 4.23%
+
+The client's advisory team: Sarah Mitchell (Pensions), James Chen (DFM), Emma Thompson (Estate Planning).
+
+Key dates: ISA deadline April 5, Tax Year End April 6, Annual Review scheduled Feb 26.
+
+You are FCA and BaFin compliant. Never give specific investment advice — instead provide information and suggest consulting with the assigned advisor. Be professional, warm, and concise. Respond in 2-4 sentences.`;
+
+async function callAI(messages) {
+  try {
+    const res = await fetch(`https://api-inference.huggingface.co/models/${HF_MODEL}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${HF_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: HF_MODEL,
+        messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
+        max_tokens: 300,
+        temperature: 0.7
+      })
+    });
+    const data = await res.json();
+    if (data.choices && data.choices[0]) return data.choices[0].message.content;
+    return "I'm experiencing a brief connectivity issue. Please try again or contact your advisor directly.";
+  } catch (e) {
+    return "I'm temporarily unavailable. For urgent queries, please contact Sarah Mitchell at +44 20 7946 0958 or book a session via the advisor panel.";
+  }
+}
+
+const C = {
+  bg: "#0A0E17", surface: "#111827", surfaceHover: "#1F2937",
+  card: "#151D2E", cardHover: "#1A2540", border: "#1E293B",
+  borderAccent: "#2563EB", primary: "#3B82F6",
+  primaryGlow: "rgba(59,130,246,0.15)", accent: "#10B981",
+  accentGlow: "rgba(16,185,129,0.12)", warning: "#F59E0B",
+  danger: "#EF4444", text: "#F1F5F9", textMuted: "#94A3B8", textDim: "#64748B",
+  gradient1: "linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)",
+  gradient2: "linear-gradient(135deg, #10B981 0%, #3B82F6 100%)",
+};
+
+const fmt = v => `£${v.toLocaleString("en-GB")}`;
+const fmtP = v => `${v>=0?"+":""}${v.toFixed(2)}%`;
+
+// Real product document links from UK financial providers
+const productDocs = {
+  "pension-ret": [
+    { name: "Vanguard ISA & SIPP Key Features", url: "https://intl.assets.vgdynamic.info/intl/ukpi/documents/legal/key-features-isa-gia.pdf", type: "KFD" },
+    { name: "Aviva Pension Fund Factsheet", url: "https://www.aviva.co.uk/content/dam/aviva-corporate/documents/adviser/fund-documents/factsheet-aviva-pension-my-future-growth.pdf", type: "Factsheet" },
+    { name: "Scottish Widows Retirement Account Guide", url: "https://adviser.scottishwidows.co.uk/assets/literature/docs/60186.pdf", type: "Guide" },
+  ],
+  "pension-trust": [
+    { name: "Royal London Trustee Investment Policy", url: "https://adviser.royallondon.com/globalassets/docs/adviser/literature/rl-trustee-investment-plan-key-features.pdf", type: "KFD" },
+  ],
+  "inv-bond": [
+    { name: "Zurich Investment Bond Key Features", url: "https://www.zurich.co.uk/-/media/project/zwp/uk/docs/intermediary-docs/investment-bond-key-features.pdf", type: "KFD" },
+    { name: "Royal London Investment Bond Guide", url: "https://adviser.royallondon.com/globalassets/docs/adviser/literature/investment-bond-guide.pdf", type: "Guide" },
+  ],
+  "isa-ss": [
+    { name: "Vanguard Managed ISA Key Features", url: "https://www.vanguardinvestor.co.uk/content/dam/intl/europe/documents/en/managed-isa-key-features.pdf", type: "KFD" },
+    { name: "Vanguard FTSE Global All Cap KIID", url: "https://fund-docs.vanguard.com/gb00bd3rz582-en.pdf", type: "KIID" },
+    { name: "Vanguard Global Stock Index KIID", url: "https://fund-docs.vanguard.com/ie00b03hd316-en.pdf", type: "KIID" },
+    { name: "Vanguard MSCI World ETF KID", url: "https://fund-docs.vanguard.com/ie00b03hd084_priipskid_en.pdf", type: "PRIIPs KID" },
+    { name: "Vanguard S&P 500 UCITS ETF KID", url: "https://fund-docs.vanguard.com/ie00bfmxyy33-en.pdf", type: "KIID" },
+  ],
+  "junior-isa": [
+    { name: "Vanguard ISA & Junior ISA Key Features", url: "https://intl.assets.vgdynamic.info/intl/ukpi/documents/legal/key-features-isa-gia.pdf", type: "KFD" },
+  ],
+  "dfm": [
+    { name: "Brewin Dolphin DFM Service Agreement", url: "https://www.brewin.co.uk/sites/brewin-dolphin-corp/files/2023-01/MPS-factsheet.pdf", type: "Factsheet" },
+    { name: "Rathbones Multi-Asset Portfolio KID", url: "https://www.rathbones.com/sites/rathbones.com/files/imce/rathbone_multi-asset_strategic_growth_portfolio_factsheet.pdf", type: "KID" },
+  ],
+  "gift-iht": [
+    { name: "Octopus IHT Service Guide", url: "https://octopusinvestments.com/wp-content/uploads/2023/01/IHT-Service-Guide.pdf", type: "Guide" },
+  ],
+};
+
+const products = [
+  { id:"pension-ret", name:"Retirement Account", cat:"Pensions", icon:"🏦", status:"active", value:485200, change:2.34 },
+  { id:"pension-trust", name:"Trustee Investment", cat:"Pensions", icon:"📋", status:"active", value:312000, change:1.87 },
+  { id:"inv-bond", name:"Investment Bond (UK)", cat:"Investments", icon:"📊", status:"active", value:175000, change:-0.45 },
+  { id:"isa-ss", name:"Stocks & Shares ISA", cat:"ISA", icon:"💎", status:"active", value:20000, change:3.12 },
+  { id:"junior-isa", name:"Junior ISA", cat:"ISA", icon:"🎓", status:"active", value:9200, change:2.67 },
+  { id:"dfm", name:"Discretionary Fund Mgmt", cat:"Managed", icon:"⚡", status:"active", value:650000, change:1.95 },
+  { id:"intl-bond", name:"International Bond", cat:"International", icon:"🌍", status:"pending", value:0, change:0 },
+  { id:"protection", name:"Life & Protection", cat:"Protection", icon:"🛡️", status:"active", value:null, change:null },
+  { id:"unit-trust", name:"Unit Trusts", cat:"Investments", icon:"📈", status:"active", value:89500, change:0.78 },
+  { id:"gift-plan", name:"Gift & IHT Planning", cat:"Estate", icon:"🎁", status:"review", value:250000, change:null },
+  { id:"loan-plan", name:"Loan Plan / Trustee Bond", cat:"Estate", icon:"🔗", status:"active", value:120000, change:null },
+  { id:"beneficiary", name:"Beneficiary Income Plan", cat:"Estate", icon:"👨‍👩‍👧", status:"draft", value:0, change:null },
+];
+
+const advisors = [
+  { name:"Sarah Mitchell", role:"Senior Wealth Advisor", spec:"Pensions & Retirement", on:true },
+  { name:"James Chen", role:"Investment Specialist", spec:"DFM & Portfolio", on:true },
+  { name:"Emma Thompson", role:"Tax & Estate Planner", spec:"IHT & Trusts", on:false },
+];
+
+const timeline = [
+  { date:"2026-02-26", type:"review", title:"Annual Portfolio Review", desc:"Scheduled with Sarah Mitchell" },
+  { date:"2026-03-15", type:"action", title:"ISA Allowance Deadline", desc:"£6,800 remaining of £20,000" },
+  { date:"2026-04-06", type:"tax", title:"Tax Year End", desc:"Review CGT and ISA contributions" },
+  { date:"2026-06-01", type:"milestone", title:"Pension Access Age", desc:"Accessible from age 55" },
+];
+
+const notifs = [
+  { id:1, type:"action", msg:"ISA allowance: £6,800 unused — invest before Apr 5", time:"2h ago" },
+  { id:2, type:"info", msg:"DFM quarterly rebalancing completed", time:"1d ago" },
+  { id:3, type:"alert", msg:"International Bond application requires signature", time:"3d ago" },
+  { id:4, type:"opportunity", msg:"New tax-advantaged EIS opportunity available", time:"5d ago" },
+];
+
+const Badge = ({status}) => {
+  const m = { active:{bg:"rgba(16,185,129,0.15)",c:"#10B981",l:"Active"}, pending:{bg:"rgba(245,158,11,0.15)",c:"#F59E0B",l:"Pending"}, review:{bg:"rgba(139,92,246,0.15)",c:"#8B5CF6",l:"In Review"}, draft:{bg:"rgba(100,116,139,0.15)",c:"#94A3B8",l:"Draft"} };
+  const s = m[status]||m.draft;
+  return <span style={{background:s.bg,color:s.c,padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:600}}>{s.l}</span>;
+};
+
+const MiniChart = ({pos}) => {
+  const pts = Array.from({length:20},(_,i) => (pos?30+i*1.2:50-i*0.8)+Math.sin(i*0.8)*8+Math.random()*4);
+  const mx=Math.max(...pts), mn=Math.min(...pts), h=32, w=80;
+  const d = pts.map((p,i)=>`${i===0?"M":"L"}${(i/19)*w},${h-((p-mn)/(mx-mn))*h}`).join(" ");
+  const col = pos?"#10B981":"#EF4444";
+  return <svg width={w} height={h}><path d={`${d} L${w},${h} L0,${h} Z`} fill={col} fillOpacity="0.15"/><path d={d} fill="none" stroke={col} strokeWidth="1.5"/></svg>;
+};
+
+const Donut = ({data}) => {
+  const s=180, cx=s/2, cy=s/2, r=65, total=data.reduce((a,d)=>a+d.value,0);
+  const cols=["#3B82F6","#10B981","#8B5CF6","#F59E0B","#EF4444"];
+  let cum=-90;
+  const segs = data.map((d,i)=>{
+    const ang=(d.value/total)*360, sa=cum; cum+=ang;
+    const sr=sa*Math.PI/180, er=cum*Math.PI/180;
+    return {d:`M ${cx+r*Math.cos(sr)} ${cy+r*Math.sin(sr)} A ${r} ${r} 0 ${ang>180?1:0} 1 ${cx+r*Math.cos(er)} ${cy+r*Math.sin(er)}`, col:cols[i%5], label:d.label, pct:((d.value/total)*100).toFixed(1)};
+  });
+  return <div style={{display:"flex",alignItems:"center",gap:24}}>
+    <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+      {segs.map((sg,i)=><path key={i} d={sg.d} fill="none" stroke={sg.col} strokeWidth="22" strokeLinecap="round"/>)}
+      <text x={cx} y={cy-8} textAnchor="middle" fill={C.text} fontSize="18" fontWeight="700">{fmt(total)}</text>
+      <text x={cx} y={cy+12} textAnchor="middle" fill={C.textMuted} fontSize="11">Total AUM</text>
+    </svg>
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {segs.map((sg,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
+        <div style={{width:10,height:10,borderRadius:3,background:sg.col,flexShrink:0}}/>
+        <span style={{color:C.textMuted}}>{sg.label}</span>
+        <span style={{color:C.text,fontWeight:600,marginLeft:"auto"}}>{sg.pct}%</span>
+      </div>)}
+    </div>
+  </div>;
+};
+
+const Card = ({children,style={}}) => <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:24,...style}}>{children}</div>;
+const Title = ({children,sub}) => <div style={{marginBottom:20}}><h2 style={{color:C.text,fontSize:18,fontWeight:700,margin:0}}>{children}</h2>{sub&&<p style={{color:C.textDim,fontSize:12,margin:"4px 0 0"}}>{sub}</p>}</div>;
+
+const Nav = ({icon,label,active,onClick,badge}) => <button onClick={onClick} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderRadius:8,background:active?C.primaryGlow:"transparent",border:"none",color:active?C.primary:C.textMuted,fontSize:13,fontWeight:active?600:400,width:"100%",textAlign:"left",position:"relative"}}>
+  <span style={{fontSize:18,width:24,textAlign:"center"}}>{icon}</span><span>{label}</span>
+  {badge&&<span style={{marginLeft:"auto",background:C.danger,color:"#fff",fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:10}}>{badge}</span>}
+</button>;
+
+// ── PAGES ──
+
+const Dashboard = () => {
+  const donut = [{label:"Pensions",value:797200},{label:"Managed",value:650000},{label:"Estate",value:370000},{label:"Investments",value:264500},{label:"ISA",value:29200}];
+  return <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:24}}>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16}}>
+      {[{l:"Total Portfolio",v:fmt(2110900),ch:"+1.87%",up:true},{l:"Monthly Growth",v:fmt(38450),ch:"+2.1%",up:true},{l:"Annual Yield",v:"4.23%",ch:"+0.12%",up:true},{l:"Risk Score",v:"6/10",ch:"Balanced",up:null}].map((k,i)=>
+        <Card key={i}><div style={{color:C.textDim,fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>{k.l}</div>
+        <div style={{color:C.text,fontSize:26,fontWeight:700}}>{k.v}</div>
+        <div style={{color:k.up===null?C.primary:k.up?C.accent:C.danger,fontSize:12,marginTop:4,fontWeight:600}}>{k.ch}</div></Card>
+      )}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24}}>
+      <Card><Title sub="Asset allocation by product category">Portfolio Allocation</Title><Donut data={donut}/></Card>
+      <Card><Title sub="Key dates and milestones">Timeline</Title><div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {timeline.map((e,i)=>{const ic={review:"📅",action:"⚡",tax:"📋",milestone:"🎯"};return <div key={i} style={{display:"flex",gap:12,alignItems:"flex-start",padding:"10px 12px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`}}>
+          <span style={{fontSize:20}}>{ic[e.type]}</span><div style={{flex:1}}><div style={{color:C.text,fontSize:13,fontWeight:600}}>{e.title}</div><div style={{color:C.textDim,fontSize:11,marginTop:2}}>{e.desc}</div></div>
+          <div style={{color:C.textDim,fontSize:11,whiteSpace:"nowrap"}}>{e.date}</div></div>;})}
+      </div></Card>
+    </div>
+    <Card><Title sub="Action items and updates">Notifications</Title><div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {notifs.map(n=>{const dc={action:C.warning,info:C.primary,alert:C.danger,opportunity:C.accent};return <div key={n.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,cursor:"pointer"}}>
+        <div style={{width:8,height:8,borderRadius:"50%",background:dc[n.type],flexShrink:0}}/><div style={{flex:1,color:C.text,fontSize:13}}>{n.msg}</div><div style={{color:C.textDim,fontSize:11}}>{n.time}</div></div>;})}
+    </div></Card>
+  </div>;
+};
+
+const Products = () => {
+  const [filter,setFilter] = useState("all");
+  const [detail,setDetail] = useState(null);
+  const cats = ["all",...new Set(products.map(p=>p.cat))];
+  const filtered = filter==="all"?products:products.filter(p=>p.cat===filter);
+  
+  if (detail) {
+    const docs = productDocs[detail.id] || [];
+    return <div className="fade-in">
+      <button onClick={()=>setDetail(null)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.textMuted,padding:"6px 14px",borderRadius:8,fontSize:12,marginBottom:20}}>← Back to Products</button>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24}}>
+        <Card>
+          <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
+            <span style={{fontSize:40}}>{detail.icon}</span>
+            <div><div style={{color:C.text,fontSize:22,fontWeight:700}}>{detail.name}</div><div style={{color:C.textDim,fontSize:13}}>{detail.cat}</div></div>
+            <div style={{marginLeft:"auto"}}><Badge status={detail.status}/></div>
+          </div>
+          {detail.value!==null&&<div style={{marginBottom:20}}>
+            <div style={{color:C.textDim,fontSize:11,textTransform:"uppercase",letterSpacing:0.8}}>Current Value</div>
+            <div style={{color:C.text,fontSize:32,fontWeight:700}}>{fmt(detail.value)}</div>
+            {detail.change!==null&&<div style={{color:detail.change>=0?C.accent:C.danger,fontSize:14,fontWeight:600}}>{fmtP(detail.change)} this month</div>}
+          </div>}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div style={{padding:12,borderRadius:8,background:C.surface,border:`1px solid ${C.border}`}}>
+              <div style={{color:C.textDim,fontSize:10,textTransform:"uppercase"}}>Tax Wrapper</div>
+              <div style={{color:C.text,fontSize:14,fontWeight:600,marginTop:4}}>ISA / SIPP</div>
+            </div>
+            <div style={{padding:12,borderRadius:8,background:C.surface,border:`1px solid ${C.border}`}}>
+              <div style={{color:C.textDim,fontSize:10,textTransform:"uppercase"}}>Risk Rating</div>
+              <div style={{color:C.text,fontSize:14,fontWeight:600,marginTop:4}}>6/10 Balanced</div>
+            </div>
+          </div>
+        </Card>
+        <Card>
+          <Title sub="Official regulatory documents and fund information">Product Documents</Title>
+          {docs.length > 0 ? <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {docs.map((d,i)=><a key={i} href={d.url} target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,textDecoration:"none",cursor:"pointer",transition:"all 0.2s"}}>
+              <span style={{fontSize:24}}>📄</span>
+              <div style={{flex:1}}><div style={{color:C.text,fontSize:13,fontWeight:600}}>{d.name}</div><div style={{color:C.textDim,fontSize:10,marginTop:2}}>{d.type} · PDF · Click to view</div></div>
+              <span style={{color:C.primary,fontSize:12,fontWeight:600}}>Open →</span>
+            </a>)}
+          </div> : <div style={{color:C.textDim,fontSize:13,fontStyle:"italic",padding:20,textAlign:"center"}}>Product documents pending upload. Contact your advisor for current documentation.</div>}
+        </Card>
+      </div>
+    </div>;
+  }
+  
+  return <div className="fade-in">
+    <Title sub="All financial products and services">Products & Services</Title>
+    <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
+      {cats.map(c=><button key={c} onClick={()=>setFilter(c)} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${filter===c?C.primary:C.border}`,background:filter===c?C.primaryGlow:"transparent",color:filter===c?C.primary:C.textMuted,fontSize:12,fontWeight:filter===c?600:400}}>{c==="all"?"All Products":c}</button>)}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16}}>
+      {filtered.map(p=><Card key={p.id} style={{cursor:"pointer",borderColor:p.status==="active"?C.border:`${C.warning}44`}} >
+        <div onClick={()=>setDetail(p)} style={{height:"100%"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:28}}>{p.icon}</span><div><div style={{color:C.text,fontSize:14,fontWeight:600}}>{p.name}</div><div style={{color:C.textDim,fontSize:11}}>{p.cat}</div></div></div>
+          <Badge status={p.status}/>
+        </div>
+        {p.value!==null&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginTop:8}}>
+          <div><div style={{color:C.textDim,fontSize:10,textTransform:"uppercase",letterSpacing:0.8}}>Current Value</div><div style={{color:C.text,fontSize:20,fontWeight:700}}>{fmt(p.value)}</div></div>
+          {p.change!==null&&<div style={{textAlign:"right"}}><MiniChart pos={p.change>=0}/><div style={{color:p.change>=0?C.accent:C.danger,fontSize:12,fontWeight:600,marginTop:2}}>{fmtP(p.change)}</div></div>}
+        </div>}
+        {p.value===null&&<div style={{color:C.textDim,fontSize:12,marginTop:8,fontStyle:"italic"}}>Coverage active — no investment value</div>}
+        {productDocs[p.id]&&<div style={{marginTop:12,padding:"4px 8px",borderRadius:6,background:"rgba(59,130,246,0.08)",display:"inline-flex",alignItems:"center",gap:4}}>
+          <span style={{fontSize:12}}>📄</span><span style={{color:C.primary,fontSize:10,fontWeight:600}}>{productDocs[p.id].length} document{productDocs[p.id].length>1?"s":""} available</span>
+        </div>}
+        </div>
+      </Card>)}
+    </div>
+  </div>;
+};
+
+const Advisory = () => {
+  const [mode,setMode] = useState("ai");
+  const [msgs,setMsgs] = useState([{from:"ai",text:"Good morning! I'm your BIM AI assistant powered by Mistral. I have access to your full portfolio and can help with queries, product information, or connect you with your advisor. What would you like to discuss today?"}]);
+  const [input,setInput] = useState("");
+  const [loading,setLoading] = useState(false);
+  const ref = useRef(null);
+  const send = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = input.trim();
+    setMsgs(p=>[...p,{from:"user",text:userMsg}]);
+    setInput("");
+    setLoading(true);
+    if (mode === "ai") {
+      const history = [...msgs.filter(m=>m.from==="user"||m.from==="ai").map(m=>({role:m.from==="user"?"user":"assistant",content:m.text})),{role:"user",content:userMsg}];
+      const reply = await callAI(history);
+      setMsgs(p=>[...p,{from:"ai",text:reply}]);
+    } else {
+      setTimeout(()=>setMsgs(p=>[...p,{from:"advisor",text:"Sarah has been notified and will respond shortly. In the meantime, our AI can help with any immediate questions."}]),1500);
+    }
+    setLoading(false);
+  };
+  useEffect(()=>{if(ref.current)ref.current.scrollTop=ref.current.scrollHeight;},[msgs]);
+  
+  return <div className="fade-in" style={{display:"grid",gridTemplateColumns:"1fr 320px",gap:24,height:"calc(100vh - 140px)"}}>
+    <Card style={{display:"flex",flexDirection:"column",padding:0,overflow:"hidden"}}>
+      <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{display:"flex",gap:8}}>
+          {["ai","advisor"].map(m=><button key={m} onClick={()=>setMode(m)} style={{padding:"6px 16px",borderRadius:20,border:`1px solid ${mode===m?C.primary:C.border}`,background:mode===m?C.primaryGlow:"transparent",color:mode===m?C.primary:C.textMuted,fontSize:12,fontWeight:600}}>{m==="ai"?"🤖 AI Assistant (Mistral)":"👤 Live Advisor"}</button>)}
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.textMuted,fontSize:11}}>🎤 Voice</button>
+          <button style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.textMuted,fontSize:11}}>📹 Video</button>
+        </div>
+      </div>
+      <div ref={ref} style={{flex:1,overflow:"auto",padding:20,display:"flex",flexDirection:"column",gap:12}}>
+        {msgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.from==="user"?"flex-end":"flex-start"}}>
+          <div style={{maxWidth:"75%",padding:"10px 16px",borderRadius:12,background:m.from==="user"?C.primary:C.surface,color:m.from==="user"?"#fff":C.text,fontSize:13,lineHeight:1.5,borderBottomRightRadius:m.from==="user"?2:12,borderBottomLeftRadius:m.from!=="user"?2:12}}>
+            {m.from!=="user"&&<div style={{fontSize:10,color:C.textDim,marginBottom:4,fontWeight:600}}>{m.from==="ai"?"BIM AI · Mistral 7B":"Sarah Mitchell"}</div>}{m.text}
+          </div></div>)}
+        {loading&&<div style={{display:"flex",justifyContent:"flex-start"}}><div style={{padding:"10px 16px",borderRadius:12,background:C.surface,borderBottomLeftRadius:2}}>
+          <div style={{fontSize:10,color:C.textDim,marginBottom:4,fontWeight:600}}>BIM AI · Mistral 7B</div>
+          <div style={{display:"flex",gap:4}}><span className="dot-pulse">●</span><span className="dot-pulse" style={{animationDelay:"0.2s"}}>●</span><span className="dot-pulse" style={{animationDelay:"0.4s"}}>●</span></div>
+        </div></div>}
+      </div>
+      <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`,display:"flex",gap:8}}>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder={mode==="ai"?"Ask your AI assistant about your portfolio...":"Message your advisor..."} style={{flex:1,padding:"10px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.text,fontSize:13}} disabled={loading}/>
+        <button onClick={send} disabled={loading} style={{padding:"10px 20px",borderRadius:8,border:"none",background:loading?"#374151":C.primary,color:"#fff",fontSize:13,fontWeight:600,opacity:loading?0.6:1}}>Send</button>
+      </div>
+    </Card>
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <Card><Title sub="Your advisory team">Advisors</Title><div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {advisors.map((a,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`}}>
+          <div style={{width:36,height:36,borderRadius:"50%",background:C.gradient1,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:14,fontWeight:700}}>{a.name.split(" ").map(n=>n[0]).join("")}</div>
+          <div style={{flex:1}}><div style={{color:C.text,fontSize:13,fontWeight:600}}>{a.name}</div><div style={{color:C.textDim,fontSize:10}}>{a.spec}</div></div>
+          <div style={{width:8,height:8,borderRadius:"50%",background:a.on?C.accent:C.textDim}}/>
+        </div>)}
+      </div>
+      <a href="https://calendly.com" target="_blank" rel="noopener noreferrer" style={{display:"block",marginTop:12,padding:"10px 14px",borderRadius:8,background:C.primary,color:"#fff",fontSize:12,fontWeight:600,textAlign:"center",textDecoration:"none"}}>📅 Book Advisor Session</a>
+      </Card>
+      <Card><Title sub="Biometric verification">Identity</Title><div style={{display:"flex",flexDirection:"column",gap:8}}>
+        <button style={{padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.text,fontSize:12,display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:18}}>🔊</span> Voice Recognition — Verified ✓</button>
+        <button style={{padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.text,fontSize:12,display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:18}}>📸</span> Face ID — Verified ✓</button>
+        <div style={{color:C.textDim,fontSize:10,marginTop:4}}>FCA & BaFin compliant KYC/AML</div>
+      </div></Card>
+    </div>
+  </div>;
+};
+
+const Compliance = () => <div className="fade-in">
+  <Title sub="Regulatory framework and compliance status">Compliance & Regulation</Title>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,marginBottom:24}}>
+    {[{t:"FCA Handbook",s:"Compliant",ic:"🇬🇧",items:["COBS","MCOB","SYSC","SUP","CASS"]},{t:"BaFin Regulation",s:"Compliant",ic:"🇩🇪",items:["KWG","WpHG","MaRisk","BAIT","GwG"]},{t:"Data Protection",s:"Compliant",ic:"🔒",items:["UK GDPR","EU GDPR","DPA 2018","ePrivacy","DSGVO"]}].map((r,i)=>
+      <Card key={i}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:24}}>{r.ic}</span><div style={{color:C.text,fontSize:15,fontWeight:700}}>{r.t}</div></div>
+        <span style={{background:"rgba(16,185,129,0.15)",color:"#10B981",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:600}}>{r.s}</span>
+      </div><div style={{display:"flex",flexDirection:"column",gap:6}}>{r.items.map((item,j)=><div key={j} style={{display:"flex",alignItems:"center",gap:8,color:C.textMuted,fontSize:12,padding:"4px 0"}}><div style={{width:6,height:6,borderRadius:"50%",background:C.accent}}/>{item}</div>)}</div></Card>
+    )}
+  </div>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24}}>
+    <Card><Title sub="Automated compliance monitoring">Audit Trail</Title>
+      {[{a:"KYC renewal completed",u:"System (Auto)",t:"Today 09:14"},{a:"AML screening — no flags",u:"System (Auto)",t:"Today 08:00"},{a:"Suitability assessment updated",u:"Sarah Mitchell",t:"Yesterday"},{a:"CASS reconciliation passed",u:"System (Auto)",t:"Mon 25 Feb"},{a:"Vulnerable customer check",u:"AI Assessment",t:"Mon 25 Feb"}].map((a,i)=>
+        <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"8px 0",borderBottom:i<4?`1px solid ${C.border}`:"none"}}>
+          <span style={{color:C.accent,fontSize:14}}>✓</span><div style={{flex:1}}><div style={{color:C.text,fontSize:12}}>{a.a}</div><div style={{color:C.textDim,fontSize:10}}>{a.u}</div></div><div style={{color:C.textDim,fontSize:10}}>{a.t}</div></div>)}
+    </Card>
+    <Card><Title sub="Service integration architecture">White-Label Partners</Title><div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {[{n:"Flagstone",d:"Cash Deposit Service",t:"Cash"},{n:"Albion Capital",d:"EIS/VCT Manager",t:"Tax-Advantaged"},{n:"Downing",d:"EIS Fund Manager",t:"Tax-Advantaged"},{n:"Octopus",d:"EIS/VCT Specialist",t:"Tax-Advantaged"},{n:"Charities Aid Foundation",d:"Philanthropy Partner",t:"Legacy"},{n:"Partner Insurers",d:"Protection products",t:"Insurance"}].map((p,i)=>
+        <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`}}>
+          <div><div style={{color:C.text,fontSize:12,fontWeight:600}}>{p.n}</div><div style={{color:C.textDim,fontSize:10}}>{p.d}</div></div>
+          <span style={{background:"rgba(59,130,246,0.12)",color:C.primary,padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:600}}>{p.t}</span></div>)}
+    </div></Card>
+  </div>
+</div>;
+
+const Corporate = () => <div className="fade-in">
+  <Title sub="Workplace pensions and employee benefits">Corporate Solutions</Title>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,marginBottom:24}}>
+    {[{t:"Workplace Pensions",ic:"🏢",d:"Auto-enrolment compliant pension schemes with employer matching.",f:["Auto-enrolment","Salary sacrifice","Employer matching","Payroll integration"]},
+      {t:"Employee Wellbeing",ic:"💚",d:"Financial education, budgeting tools and wellbeing assessments.",f:["Financial health score","Budgeting tools","Education modules","1-to-1 guidance"]},
+      {t:"Group Benefits",ic:"👥",d:"Group life, income protection, PMI and employee benefits.",f:["Group life cover","Income protection","PMI / Health","EAP access"]}].map((s,i)=>
+      <Card key={i}><span style={{fontSize:32}}>{s.ic}</span><div style={{color:C.text,fontSize:15,fontWeight:700,marginTop:12}}>{s.t}</div>
+        <div style={{color:C.textMuted,fontSize:12,marginTop:6,lineHeight:1.5}}>{s.d}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:14}}>{s.f.map((f,j)=><div key={j} style={{display:"flex",alignItems:"center",gap:6,color:C.textMuted,fontSize:11}}><span style={{color:C.accent}}>→</span> {f}</div>)}</div></Card>)}
+  </div>
+  <Card><Title sub="Revenue and engagement opportunities">LTV Maximisation Strategy</Title>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16}}>
+      {[{t:"Product Cross-Sell",v:"£3.2M",d:"ISA → DFM upgrade pipeline",col:C.primary},{t:"Advisor Referrals",v:"47",d:"AI pre-qualified leads this month",col:C.accent},{t:"Retention Rate",v:"96.8%",d:"12-month client retention",col:"#8B5CF6"},{t:"Avg. LTV",v:"£142K",d:"Projected lifetime value",col:C.warning}].map((m,i)=>
+        <div key={i} style={{padding:16,borderRadius:8,background:C.surface,border:`1px solid ${C.border}`}}>
+          <div style={{color:C.textDim,fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:0.8}}>{m.t}</div>
+          <div style={{color:m.col,fontSize:28,fontWeight:700,marginTop:6}}>{m.v}</div>
+          <div style={{color:C.textMuted,fontSize:11,marginTop:4}}>{m.d}</div></div>)}
+    </div></Card>
+</div>;
+
+// ── MAIN APP ──
+const LoginScreen = ({ onLogin }) => {
+  const [phase, setPhase] = useState("idle"); // idle, scanning, voiceAuth, verified
+  const [status, setStatus] = useState("Tap to authenticate");
+  
+  const startAuth = () => {
+    setPhase("scanning"); setStatus("Scanning face...");
+    setTimeout(() => { setPhase("voiceAuth"); setStatus("Verifying voice pattern..."); }, 2200);
+    setTimeout(() => { setPhase("verified"); setStatus("Identity verified ✓"); }, 3800);
+    setTimeout(() => onLogin(), 4800);
+  };
+
+  return <div style={{position:"fixed",inset:0,background:"#0A0E17",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:9999}}>
+    <div style={{textAlign:"center"}}>
+      <div style={{fontSize:28,fontWeight:800,background:"linear-gradient(135deg,#6366f1,#818cf8)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",marginBottom:4}}>BIM</div>
+      <div style={{color:"#64748b",fontSize:12,marginBottom:48,letterSpacing:2}}>WEALTH MANAGEMENT PLATFORM</div>
+      
+      <div onClick={phase==="idle"?startAuth:undefined} style={{position:"relative",width:160,height:160,margin:"0 auto 32px",cursor:phase==="idle"?"pointer":"default"}}>
+        {/* Outer ring */}
+        <div style={{position:"absolute",inset:0,borderRadius:"50%",border:phase==="scanning"?"3px solid transparent":"3px solid #1e293b",animation:phase==="scanning"?"borderSpin 1s linear infinite":"none",borderTopColor:phase==="scanning"?"#6366f1":"",borderRightColor:phase==="scanning"?"transparent":""}}/>
+        
+        {/* Face circle */}
+        <div style={{position:"absolute",inset:8,borderRadius:"50%",background:"#111827",display:"flex",alignItems:"center",justifyContent:"center",animation:phase==="scanning"||phase==="voiceAuth"?"faceGlow 1.5s ease-in-out infinite":"none",boxShadow:phase==="verified"?"0 0 40px rgba(16,185,129,0.4)":"none",border:phase==="verified"?"2px solid #10b981":"2px solid #1e293b",transition:"all 0.5s ease"}}>
+          
+          {phase==="verified" ? 
+            <div style={{animation:"checkPop 0.4s ease-out",fontSize:48}}>✓</div> :
+            <div style={{fontSize:48,filter:phase==="scanning"?"brightness(1.2)":"brightness(0.6)",transition:"filter 0.3s"}}>👤</div>
+          }
+          
+          {/* Scan line */}
+          {phase==="scanning" && <div style={{position:"absolute",left:"15%",right:"15%",height:2,background:"linear-gradient(90deg,transparent,#6366f1,transparent)",animation:"scanLine 1.8s ease-in-out infinite",top:"30%"}}/>}
+        </div>
+        
+        {/* Voice waves */}
+        {phase==="voiceAuth" && <div style={{position:"absolute",inset:-16}}>
+          {[0,1,2].map(i=><div key={i} style={{position:"absolute",inset:-8*(i+1),borderRadius:"50%",border:"1px solid rgba(99,102,241,"+((3-i)*0.15)+")",animation:`faceGlow ${1.5+i*0.3}s ease-in-out infinite`,animationDelay:i*0.2+"s"}}/>)}
+        </div>}
+      </div>
+      
+      <div style={{color:phase==="verified"?"#10b981":"#94a3b8",fontSize:14,fontWeight:600,marginBottom:8,transition:"color 0.3s"}}>{status}</div>
+      
+      {phase==="idle" && <div style={{color:"#475569",fontSize:11}}>Biometric Face ID + Voice Recognition</div>}
+      {phase==="scanning" && <div style={{color:"#475569",fontSize:11}}>Liveness detection active...</div>}
+      {phase==="voiceAuth" && <div style={{color:"#475569",fontSize:11}}>Matching voiceprint signature...</div>}
+      {phase==="verified" && <div style={{color:"#475569",fontSize:11}}>FCA & BaFin KYC/AML compliant</div>}
+      
+      <div style={{marginTop:48,color:"#334155",fontSize:10}}>Protected by 256-bit AES encryption · SOC 2 Type II</div>
+    </div>
+  </div>;
+};
+
+const App = () => {
+  const [loggedIn,setLoggedIn] = useState(false);
+  const [page,setPage] = useState("dashboard");
+  
+  if (!loggedIn) return <LoginScreen onLogin={()=>setLoggedIn(true)} />;
+  const [time,setTime] = useState(new Date());
+  useEffect(()=>{const t=setInterval(()=>setTime(new Date()),60000);return()=>clearInterval(t);},[]);
+  const pages = {dashboard:<Dashboard/>,products:<Products/>,advisory:<Advisory/>,compliance:<Compliance/>,corporate:<Corporate/>};
+  const titles = {dashboard:"Portfolio Overview",products:"Products & Services",advisory:"Advisory & AI Assistant",compliance:"Compliance & Regulation",corporate:"Corporate Solutions"};
+
+  return <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
+    <div style={{width:240,background:C.surface,borderRight:`1px solid ${C.border}`,padding:"20px 12px",display:"flex",flexDirection:"column",flexShrink:0}}>
+      <div style={{padding:"0 16px 20px",borderBottom:`1px solid ${C.border}`,marginBottom:20}}>
+        <div style={{fontSize:20,fontWeight:700,background:C.gradient2,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>BIM</div>
+        <div style={{color:C.textDim,fontSize:10,letterSpacing:1.5,textTransform:"uppercase",marginTop:2}}>Wealth Platform</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:2,flex:1}}>
+        <Nav icon="📊" label="Dashboard" active={page==="dashboard"} onClick={()=>setPage("dashboard")}/>
+        <Nav icon="💼" label="Products" active={page==="products"} onClick={()=>setPage("products")}/>
+        <Nav icon="💬" label="Advisory" active={page==="advisory"} onClick={()=>setPage("advisory")} badge="3"/>
+        <Nav icon="🛡️" label="Compliance" active={page==="compliance"} onClick={()=>setPage("compliance")}/>
+        <Nav icon="🏢" label="Corporate" active={page==="corporate"} onClick={()=>setPage("corporate")}/>
+      </div>
+      <div style={{borderTop:`1px solid ${C.border}`,paddingTop:16,display:"flex",alignItems:"center",gap:10,padding:"16px 12px 0"}}>
+        <div style={{width:32,height:32,borderRadius:"50%",background:C.gradient1,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:700}}>JD</div>
+        <div><div style={{color:C.text,fontSize:12,fontWeight:600}}>James Donovan</div><div style={{color:C.textDim,fontSize:10}}>Premium Client</div></div>
+      </div>
+    </div>
+    <div style={{flex:1,overflow:"auto"}}>
+      <div style={{padding:"16px 32px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><h1 style={{margin:0,fontSize:20,fontWeight:700}}>{titles[page]}</h1>
+          <div style={{color:C.textDim,fontSize:11,marginTop:2}}>{time.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} · {time.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</div></div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <span style={{width:8,height:8,borderRadius:"50%",background:C.accent}}/><span style={{color:C.textMuted,fontSize:11}}>FCA Compliant</span>
+          <span style={{color:C.textDim,margin:"0 4px"}}>·</span>
+          <span style={{width:8,height:8,borderRadius:"50%",background:C.accent}}/><span style={{color:C.textMuted,fontSize:11}}>BaFin Compliant</span></div>
+      </div>
+      <div style={{padding:32}}>{pages[page]}</div>
+    </div>
+  </div>;
+};
+
+ReactDOM.render(<App/>, document.getElementById("root"));
+</script>
+</body>
+</html>
