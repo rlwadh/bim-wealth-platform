@@ -35,7 +35,13 @@ const { useState, useEffect, useRef, useCallback } = React;
 // ── AI CONFIG ──
 const _p = ["hf","wEMRnQBPkH","NZqScTnBQA","SDFXogdnCp","KAzN"];
 const HF_TOKEN = _p[0]+"_"+_p.slice(1).join("");
-const HF_MODEL = "mistralai/Mistral-7B-Instruct-v0.3";
+const AI_MODELS = [
+  "mistralai/Mistral-7B-Instruct-v0.3",
+  "mistralai/Mistral-7B-Instruct-v0.2",
+  "HuggingFaceH4/zephyr-7b-beta",
+  "microsoft/Phi-3-mini-4k-instruct",
+  "google/gemma-2b-it"
+];
 const SYSTEM_PROMPT = `You are BIM AI, the intelligent wealth management assistant for Big Investment Management (BIM). You help clients with portfolio queries, financial product information, tax planning, and general wealth management guidance.
 
 You have access to the client's portfolio:
@@ -59,23 +65,30 @@ Key dates: ISA deadline April 5, Tax Year End April 6, Annual Review scheduled F
 You are FCA and BaFin compliant. Never give specific investment advice — instead provide information and suggest consulting with the assigned advisor. Be professional, warm, and concise. Respond in 2-4 sentences.`;
 
 async function callAI(messages) {
-  try {
-    const res = await fetch(`https://api-inference.huggingface.co/models/${HF_MODEL}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${HF_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: HF_MODEL,
-        messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
-        max_tokens: 300,
-        temperature: 0.7
-      })
-    });
-    const data = await res.json();
-    if (data.choices && data.choices[0]) return data.choices[0].message.content;
-    return "I'm experiencing a brief connectivity issue. Please try again or contact your advisor directly.";
-  } catch (e) {
-    return "I'm temporarily unavailable. For urgent queries, please contact Sarah Mitchell at +44 20 7946 0958 or book a session via the advisor panel.";
+  for (const model of AI_MODELS) {
+    try {
+      console.log("[BIM AI] Trying model:", model);
+      const res = await fetch(`https://api-inference.huggingface.co/models/${model}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${HF_TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: model,
+          messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
+          max_tokens: 300,
+          temperature: 0.7
+        })
+      });
+      console.log("[BIM AI] Response status:", res.status);
+      const data = await res.json();
+      console.log("[BIM AI] Response data:", JSON.stringify(data).substring(0, 200));
+      if (data.choices && data.choices[0]) return data.choices[0].message.content;
+      if (data.error) { console.warn("[BIM AI] Model error:", data.error); continue; }
+    } catch (e) {
+      console.error("[BIM AI] Fetch error for", model, ":", e.message);
+      continue;
+    }
   }
+  return "I'm experiencing connectivity issues with our AI models. For immediate assistance, please contact Sarah Mitchell at +44 20 7946 0958 or use the 'Book Advisor Session' button.";
 }
 
 const C = {
