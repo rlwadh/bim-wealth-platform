@@ -35,8 +35,8 @@ const { useState, useEffect, useRef, useCallback } = React;
 // ── AI CONFIG (Pollinations.ai - free, CORS-enabled, open-source models) ──
 async function callAI(messages) {
   try {
-    console.log("[BIM AI] Calling Pollinations.ai (openai-compatible, CORS-enabled)");
-    const res = await fetch("https://text.pollinations.ai/openai", {
+    console.log("[BIM AI] Calling Pollinations.ai text generation");
+    const res = await fetch("https://text.pollinations.ai/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -47,10 +47,19 @@ async function callAI(messages) {
       })
     });
     console.log("[BIM AI] Status:", res.status);
+    if (!res.ok) {
+      // Fallback: try simple GET endpoint
+      console.log("[BIM AI] POST failed, trying GET endpoint");
+      const lastMsg = messages[messages.length-1].content;
+      const getRes = await fetch(`https://text.pollinations.ai/${encodeURIComponent("You are BIM AI, a wealth management assistant. Client portfolio: £2.11M. " + lastMsg)}?model=mistral`);
+      const text = await getRes.text();
+      return text || "Please try again.";
+    }
     const data = await res.json();
-    console.log("[BIM AI] Response received");
+    console.log("[BIM AI] Response received:", JSON.stringify(data).substring(0,200));
     if (data.choices && data.choices[0]) return data.choices[0].message.content;
-    return "I'm experiencing a brief issue. Please try again or contact your advisor.";
+    if (typeof data === "string") return data;
+    return "Please try again or contact your advisor.";
   } catch (e) {
     console.error("[BIM AI] Error:", e.message);
     return "I'm temporarily unavailable. Please contact Sarah Mitchell at +44 20 7946 0958.";
