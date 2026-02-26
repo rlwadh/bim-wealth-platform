@@ -32,34 +32,41 @@ button:hover { opacity: 0.9; }
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
-// ── AI CONFIG (Pollinations.ai - free, CORS-enabled, open-source models) ──
+// ── AI CONFIG (Pollinations.ai - free, CORS-enabled, open-source) ──
 async function callAI(messages) {
   try {
-    console.log("[BIM AI] Calling Pollinations.ai text generation");
-    const res = await fetch("https://text.pollinations.ai/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "mistral",
-        messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
-        max_tokens: 300,
-        temperature: 0.7
-      })
-    });
-    console.log("[BIM AI] Status:", res.status);
-    if (!res.ok) {
-      // Fallback: try simple GET endpoint
-      console.log("[BIM AI] POST failed, trying GET endpoint");
-      const lastMsg = messages[messages.length-1].content;
-      const getRes = await fetch(`https://text.pollinations.ai/${encodeURIComponent("You are BIM AI, a wealth management assistant. Client portfolio: £2.11M. " + lastMsg)}?model=mistral`);
+    const lastMsg = messages[messages.length-1].content;
+    const systemCtx = "You are BIM AI, the intelligent wealth management assistant for Big Investment Management. Client portfolio: £2.11M total (Pension £485K, DFM £650K, ISA £20K, Investment Bond £175K, Unit Trusts £89.5K, Gift/IHT £250K, Loan Plan £120K). Risk profile 6/10. ISA deadline April 5. Advisors: Sarah Mitchell (Pensions), James Chen (DFM), Emma Thompson (Estate). Be professional, concise (2-4 sentences). Never give specific investment advice.";
+    const fullPrompt = systemCtx + "\n\nClient asks: " + lastMsg + "\n\nRespond as BIM AI:";
+    
+    // Try POST to gen.pollinations.ai first
+    console.log("[BIM AI] Trying gen.pollinations.ai");
+    try {
+      const res = await fetch("https://gen.pollinations.ai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "mistral",
+          messages: [{ role: "system", content: systemCtx }, ...messages],
+          max_tokens: 300
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.choices && data.choices[0]) return data.choices[0].message.content;
+      }
+      console.log("[BIM AI] gen.pollinations status:", res.status);
+    } catch(e) { console.log("[BIM AI] gen.pollinations failed:", e.message); }
+
+    // Fallback: GET text.pollinations.ai (anonymous, always works)
+    console.log("[BIM AI] Fallback: GET text.pollinations.ai");
+    const getRes = await fetch("https://text.pollinations.ai/" + encodeURIComponent(fullPrompt));
+    if (getRes.ok) {
       const text = await getRes.text();
-      return text || "Please try again.";
+      if (text && !text.includes('"error"')) return text.trim();
     }
-    const data = await res.json();
-    console.log("[BIM AI] Response received:", JSON.stringify(data).substring(0,200));
-    if (data.choices && data.choices[0]) return data.choices[0].message.content;
-    if (typeof data === "string") return data;
-    return "Please try again or contact your advisor.";
+    
+    return "I'm experiencing connectivity issues. Please contact Sarah Mitchell at +44 20 7946 0958.";
   } catch (e) {
     console.error("[BIM AI] Error:", e.message);
     return "I'm temporarily unavailable. Please contact Sarah Mitchell at +44 20 7946 0958.";
