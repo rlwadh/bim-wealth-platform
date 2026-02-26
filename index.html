@@ -32,16 +32,30 @@ button:hover { opacity: 0.9; }
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
-// ── AI CONFIG ──
-const _p = ["hf","wEMRnQBPkH","NZqScTnBQA","SDFXogdnCp","KAzN"];
-const HF_TOKEN = _p[0]+"_"+_p.slice(1).join("");
-const AI_MODELS = [
-  "mistralai/Mistral-7B-Instruct-v0.3",
-  "mistralai/Mistral-7B-Instruct-v0.2",
-  "HuggingFaceH4/zephyr-7b-beta",
-  "microsoft/Phi-3-mini-4k-instruct",
-  "google/gemma-2b-it"
-];
+// ── AI CONFIG (Pollinations.ai - free, CORS-enabled, open-source models) ──
+async function callAI(messages) {
+  try {
+    console.log("[BIM AI] Calling Pollinations.ai (openai-compatible, CORS-enabled)");
+    const res = await fetch("https://text.pollinations.ai/openai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "mistral",
+        messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
+        max_tokens: 300,
+        temperature: 0.7
+      })
+    });
+    console.log("[BIM AI] Status:", res.status);
+    const data = await res.json();
+    console.log("[BIM AI] Response received");
+    if (data.choices && data.choices[0]) return data.choices[0].message.content;
+    return "I'm experiencing a brief issue. Please try again or contact your advisor.";
+  } catch (e) {
+    console.error("[BIM AI] Error:", e.message);
+    return "I'm temporarily unavailable. Please contact Sarah Mitchell at +44 20 7946 0958.";
+  }
+}
 const SYSTEM_PROMPT = `You are BIM AI, the intelligent wealth management assistant for Big Investment Management (BIM). You help clients with portfolio queries, financial product information, tax planning, and general wealth management guidance.
 
 You have access to the client's portfolio:
@@ -63,40 +77,6 @@ The client's advisory team: Sarah Mitchell (Pensions), James Chen (DFM), Emma Th
 Key dates: ISA deadline April 5, Tax Year End April 6, Annual Review scheduled Feb 26.
 
 You are FCA and BaFin compliant. Never give specific investment advice — instead provide information and suggest consulting with the assigned advisor. Be professional, warm, and concise. Respond in 2-4 sentences.`;
-
-async function callAI(messages) {
-  const userMsg = messages[messages.length - 1].content;
-  const prompt = `<s>[INST] ${SYSTEM_PROMPT}\n\nUser: ${userMsg} [/INST]`;
-  
-  for (const model of AI_MODELS) {
-    try {
-      console.log("[BIM AI] Trying model:", model);
-      const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${HF_TOKEN}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          inputs: prompt,
-          parameters: { max_new_tokens: 250, temperature: 0.7, return_full_text: false }
-        })
-      });
-      console.log("[BIM AI] Status:", res.status);
-      const data = await res.json();
-      console.log("[BIM AI] Data:", JSON.stringify(data).substring(0, 300));
-      if (Array.isArray(data) && data[0] && data[0].generated_text) {
-        let text = data[0].generated_text.trim();
-        // Clean up any leftover prompt artifacts
-        if (text.includes("[/INST]")) text = text.split("[/INST]").pop().trim();
-        if (text.includes("</s>")) text = text.split("</s>")[0].trim();
-        return text;
-      }
-      if (data.error) { console.warn("[BIM AI] Error:", data.error); continue; }
-    } catch (e) {
-      console.error("[BIM AI] Fetch error:", model, e.message);
-      continue;
-    }
-  }
-  return "I'm experiencing connectivity issues. Please contact Sarah Mitchell at +44 20 7946 0958 or use 'Book Advisor Session'.";
-}
 
 const C = {
   bg: "#0A0E17", surface: "#111827", surfaceHover: "#1F2937",
